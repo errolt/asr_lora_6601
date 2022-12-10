@@ -31,7 +31,7 @@ class TremoLoader(object):
     CMD_VERSION = 17
 
     def __init__(self, port=DEFAULT_PORT, baud=DEFAULT_BAUD):
-        self.ser = serial.Serial(port, baud, timeout=5)
+        self.ser = serial.Serial(port, baud, timeout=5,xonxoff=0,rtscts=0)
 
     def wait_response(self):
         header = self.ser.read(4)
@@ -74,12 +74,12 @@ class TremoLoader(object):
 
     def hw_reset(self, mode=0):
         if mode:
-            self.ser.setDTR(True)  # gpio2 1
+            self.ser.setDTR(False)  # gpio2 1
             self.ser.setRTS(True)  # rst 0
             time.sleep(0.1)
             self.ser.setRTS(False)  # rst 1
             time.sleep(0.1)
-            self.ser.setDTR(False)  # gpio2 0
+            self.ser.setDTR(True)  # gpio2 0
         else:
             self.ser.setRTS(True)
             time.sleep(0.1)
@@ -268,6 +268,25 @@ def tremo_read_sn(args):
     tremo.set_baudrate(args.baud)
     return tremo.read_sn()
 
+def tremo_monitor(args):
+    print(args)
+    tremo = TremoLoader(args.port,args.baud)
+    tremo.hw_reset(0)
+    serialString = ""                           # Used to hold data coming over UART
+    while(1):
+        # Wait until there is data waiting in the serial buffer
+        if(tremo.ser.in_waiting > 0):
+            # Read data out of the buffer until a carraige return / new line is found
+            try:
+                serialString = tremo.ser.readline()
+                # Print the contents of the serial data
+                print(serialString.decode('Ascii'))
+            except:
+                print("E")
+        else:
+            time.sleep(0.1)
+    return 
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -320,6 +339,11 @@ if __name__ == '__main__':
         'read_sn',
         help='read the chip serial number')
 
+    # monitor
+    parser_monitor = subparsers.add_parser(
+        'monitor',
+        help='monitor board output')
+
     args = parser.parse_args()
 
     try:
@@ -338,6 +362,8 @@ if __name__ == '__main__':
         elif args.command == 'read_sn':
             sn = tremo_read_sn(args)
             print('The SN is: %s' % binascii.hexlify(sn))
+        elif args.command == 'monitor':
+            tremo_monitor(args)
     except Exception as e:
         print(str(e))
 
