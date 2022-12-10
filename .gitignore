@@ -10,3 +10,4 @@ tools/toolchain/arm-none-eabi/
 tools/toolchain/bin/
 tools/toolchain/lib/
 tools/toolchain/share/
+tools/*
