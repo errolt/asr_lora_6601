@@ -95,6 +95,15 @@ $(OUT_DIR)/$(PROJECT)$(LINK_OUTPUT_SUFFIX): $(addprefix $(OUT_DIR)/,$(notdir $($
 flash: $(OUT_DIR)/$(PROJECT)$(BIN_OUTPUT_SUFFIX) $(TREMO_LOADER)
 	$(VIEW)echo Start flashing...
 	$(VIEW)$(PYTHON) $(TREMO_LOADER) -p $(SERIAL_PORT) -b $(SERIAL_BAUDRATE) flash $($(PROJECT)_ADDRESS) $(OUT_DIR)/$(PROJECT)$(BIN_OUTPUT_SUFFIX)
+
+read_sn: $(OUT_DIR)/$(PROJECT)$(BIN_OUTPUT_SUFFIX) $(TREMO_LOADER)
+	$(VIEW)echo Start read_sn...
+	$(VIEW)$(PYTHON) $(TREMO_LOADER) -p $(SERIAL_PORT) -b $(SERIAL_BAUDRATE) read_sn
+
+monitor: $(OUT_DIR)/$(PROJECT)$(BIN_OUTPUT_SUFFIX) $(TREMO_LOADER)
+	$(VIEW)echo Start monitor...
+	$(VIEW)$(PYTHON) $(TREMO_LOADER) -p $(SERIAL_PORT) -b 115200 monitor
+
 	
 clean:
 	$(VIEW)echo Cleaning...
