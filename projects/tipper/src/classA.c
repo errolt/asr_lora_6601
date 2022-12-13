@@ -271,8 +271,10 @@ static void Decode_acc(accf *data,acc_decs *out)
     out->Angle = atan2f((data->Y),(data->Z))*180/3.141592653589793238462643383279502884;
     out->Temperature=(acc_data[filter_len].T )/340 + 43.5;
     //out->Temperature=(acc_data[filter_len].T )/321 + 21;
+    float angle0=sinf(calib[0].angle/180*M_PI);
+    float angle1=sinf(calib[1].angle/180*M_PI);
 
-    out->rd=((out->Angle-calib[0].angle)/(calib[1].angle-calib[0].angle))*(calib[1].rd - calib[0].rd) + calib[0].rd;
+    out->rd=(sin(out->Angle/180*M_PI) - angle0)/(angle1-angle0)*(calib[1].rd - calib[0].rd) + calib[0].rd;
     printf("Angle: %f, Temp: %f, \r\nRD before: %f\r\n",out->Angle,out->Temperature,out->rd);
     float temp_f=(out->Temperature * 9/5) + 32;
     out->rd_correction=((1.00130346 - (0.000134722124 * temp_f) + (0.00000204052596 * powf(temp_f,2)) - (0.00000000232820948 * powf(temp_f,3))) / (1.00130346 - (0.000134722124 * 20) + (0.00000204052596 * powf(20,2)) - (0.00000000232820948 * powf(20,3))));

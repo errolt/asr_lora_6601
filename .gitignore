@@ -11,3 +11,4 @@ tools/toolchain/bin/
 tools/toolchain/lib/
 tools/toolchain/share/
 tools/*
+.vscode
