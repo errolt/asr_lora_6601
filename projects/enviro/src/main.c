@@ -40,6 +40,7 @@ void board_init()
     rcc_enable_peripheral_clk(RCC_PERIPHERAL_RTC, true);
     rcc_enable_peripheral_clk(RCC_PERIPHERAL_SAC, true);
     rcc_enable_peripheral_clk(RCC_PERIPHERAL_LORA, true);
+    rcc_enable_peripheral_clk(RCC_PERIPHERAL_I2C0, true);
 
     delay_ms(100);
     pwr_xo32k_lpm_cmd(true);

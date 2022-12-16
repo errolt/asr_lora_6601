@@ -20,7 +20,6 @@
  *
  * \author    Gregory Cristian ( Semtech )
  */
-
 #include <stdio.h>
 #include "utilities.h"
 #include "LoRaMac.h"
@@ -35,6 +34,7 @@
 #include "tremo_delay.h"
 #include "tremo_pwr.h"
 #include <sys/errno.h>
+#include "bme280.h"
 
 gpio_t *g_int_gpiox = GPIOA;
 uint8_t g_int_pin = GPIO_PIN_6;
@@ -51,38 +51,13 @@ int *__errno()
 //return get_errno_ptr();
 }
 
-typedef struct {
-    int16_t X;
-    int16_t Y;
-    int16_t Z;
-    int16_t T;
-} acc;
-typedef struct {
-    float X;
-    float Y;
-    float Z;
-    float T;
-} accf;
-const int filter_len=2;
-accf acc_data[3];
-typedef struct 
-{
-    float Angle;
-    float Temperature;
-    float rd;
-    float rd_correction;
-} acc_decs;
-
-typedef struct {
-    float angle;
-    float rd;
-} calibf;
-calibf calib[2]={{0,0.990},{90,1.200}};
+struct bme280_dev dev;
+uint8_t dev_addr = BME280_I2C_ADDR_PRIM;
 
 /*!
- * Defines the application data transmission duty cycle. 10m, value in [ms].
+ * Defines the application data transmission duty cycle. 1h, value in [ms].
  */
-#define APP_TX_DUTYCYCLE                            600000
+#define APP_TX_DUTYCYCLE                            3600000
 
 /*!
  * Defines a random delay for application data transmission duty cycle. 1s,
@@ -204,7 +179,7 @@ void power_off(void)
     }    
 }
 */
-void read_i2c(int8_t chip_address,int8_t address,int8_t len,uint8_t* data)
+uint8_t read_i2c(uint8_t chip_address,uint8_t address,uint8_t len,uint8_t* data)
 {
    // start
     i2c_master_send_start(I2C0, chip_address, I2C_WRITE);
@@ -239,8 +214,10 @@ void read_i2c(int8_t chip_address,int8_t address,int8_t len,uint8_t* data)
     }
     // stop
     i2c_master_send_stop(I2C0);
+
+    return 0;
 }
-void write_i2c(int8_t chip_address,int8_t address, int8_t data)
+void write_i2c(uint8_t chip_address,uint8_t address, uint8_t data)
 {
    // start
     i2c_clear_flag_status(I2C0, I2C_FLAG_TRANS_EMPTY);
@@ -262,47 +239,51 @@ void write_i2c(int8_t chip_address,int8_t address, int8_t data)
 
 }
 
+uint8_t write2_i2c(uint8_t chip_address,uint8_t address, uint8_t len, uint8_t *data)
+{
+   // start
+    i2c_clear_flag_status(I2C0, I2C_FLAG_TRANS_EMPTY);
+    i2c_master_send_start(I2C0, chip_address, I2C_WRITE);
+    while (i2c_get_flag_status(I2C0, I2C_FLAG_TRANS_EMPTY) != SET);
+
+    // write address
+    i2c_clear_flag_status(I2C0, I2C_FLAG_TRANS_EMPTY);
+    i2c_send_data(I2C0, address);
+    while (i2c_get_flag_status(I2C0, I2C_FLAG_TRANS_EMPTY) != SET);
+
+    // write data
+    for(int i=0;i<len;i++)
+    {
+        i2c_clear_flag_status(I2C0, I2C_FLAG_TRANS_EMPTY);
+        i2c_send_data(I2C0, data[i]);
+        while (i2c_get_flag_status(I2C0, I2C_FLAG_TRANS_EMPTY) != SET);
+    }
+
+    // stop
+    i2c_master_send_stop(I2C0);
+
+}
+
 
 /*!
  * \brief   Prepares the payload of the frame
  */
-static void Decode_acc(accf *data,acc_decs *out)
-{
-    out->Angle = atan2f((data->Y),(data->Z))*180/3.141592653589793238462643383279502884;
-    out->Temperature=(acc_data[filter_len].T )/340 + 43.5;
-    //out->Temperature=(acc_data[filter_len].T )/321 + 21;
-    float angle0=sinf(calib[0].angle/180*M_PI);
-    float angle1=sinf(calib[1].angle/180*M_PI);
-
-    out->rd=(sin(out->Angle/180*M_PI) - angle0)/(angle1-angle0)*(calib[1].rd - calib[0].rd) + calib[0].rd;
-    printf("Angle: %f, Temp: %f, \r\nRD before: %f\r\n",out->Angle,out->Temperature,out->rd);
-    float temp_f=(out->Temperature * 9/5) + 32;
-    out->rd_correction=((1.00130346 - (0.000134722124 * temp_f) + (0.00000204052596 * powf(temp_f,2)) - (0.00000000232820948 * powf(temp_f,3))) / (1.00130346 - (0.000134722124 * 20) + (0.00000204052596 * powf(20,2)) - (0.00000000232820948 * powf(20,3))));
-    out->rd = out->rd * out->rd_correction;
-    printf("RD after: %f\r\n",out->rd);
-}
 static void PrepareTxFrame( uint8_t port )
 {
-    acc_decs data;
-    Decode_acc(&acc_data[filter_len],&data);
- 
-    if(data.rd>1.3 || data.rd<0.9)
-    {
-        data.rd=0;
-    }
-    printf("RD sent: %f\r\n",data.rd);
-
-    int16_t temp_i=data.Temperature*100;
-    int16_t deg_i = data.Angle*100;
-    int16_t rd_i = data.rd*1000;
-
-    AppDataSize = 6;
-    AppData[0] = deg_i>>8;
-    AppData[1] = deg_i;
-    AppData[2] = temp_i>>8;
-    AppData[3] = temp_i;
-    AppData[4] = rd_i>>8;
-    AppData[5] = rd_i;
+    struct bme280_data comp_data;
+    uint8_t rslt = bme280_set_sensor_mode(BME280_FORCED_MODE, &dev);
+    delay_ms(10);
+    rslt = bme280_get_sensor_data(BME280_ALL, &comp_data, &dev);    
+   
+    AppDataSize = 8;
+    AppData[0] = comp_data.temperature>>8;
+    AppData[1] = comp_data.temperature;
+    AppData[2] = comp_data.humidity>>16;
+    AppData[3] = comp_data.humidity>>8;
+    AppData[4] = comp_data.humidity;
+    AppData[5] = comp_data.pressure>>16;
+    AppData[6] = comp_data.pressure>>8;
+    AppData[7] = comp_data.pressure;
 }
 
 /*!
@@ -532,70 +513,6 @@ static void McpsIndication( McpsIndication_t *mcpsIndication )
         {
             printf("%02X",mcpsIndication->Buffer[i]);
         }
-
-
-
-        printf("\r\n");
-        if(mcpsIndication->Port==90)
-        {//Calibration data
-            float angle1=mcpsIndication->Buffer[0]+(mcpsIndication->Buffer[1]<<8);
-            angle1=angle1/100;
-            float rd1=mcpsIndication->Buffer[2]+(mcpsIndication->Buffer[3]<<8);
-            rd1=rd1/1000;
-            float angle2=mcpsIndication->Buffer[4]+(mcpsIndication->Buffer[5]<<8);
-            angle2=angle2/100;
-            float rd2=mcpsIndication->Buffer[6]+(mcpsIndication->Buffer[7]<<8);
-            rd2=rd2/1000;
-
-            printf("Callibration data: Angle1: %f, rd1: %f, angle2: %f, rd2: %f",angle1,rd1,angle2,rd2);
-            calib[0].angle=angle1;
-            calib[0].rd=rd1;
-            calib[1].angle=angle2;
-            calib[1].rd=rd2;
-
-        }
-        if(mcpsIndication->Port==99)
-        {//Calibration Low data
-            acc_decs data;
-            Decode_acc(&acc_data[filter_len],&data);
-
-            float rd=mcpsIndication->Buffer[0]+(mcpsIndication->Buffer[1]<<8);
-            rd=rd/1000;
-            rd = rd * (1+(1-data.rd_correction));
-            printf("Callibration data: %f, Temp: %f, Angle %f",rd,data.Temperature,data.Angle);
-            calib[0].angle=data.Angle;
-            calib[0].rd=rd;
-        }
-        if(mcpsIndication->Port==100)
-        {//Calibration High data
-            acc_decs data;
-            Decode_acc(&acc_data[filter_len],&data);
-
-            float rd=mcpsIndication->Buffer[0]+(mcpsIndication->Buffer[1]<<8);
-            rd=rd/1000;
-            rd = rd * (1+(1-data.rd_correction));
-            printf("Callibration data: %f, Temp: %f, Angle %f",rd,data.Temperature,data.Angle);
-            calib[1].angle=data.Angle;
-            calib[1].rd=rd;
-        }
-        if(mcpsIndication->Port==99 || mcpsIndication->Port==100)
-        {
-            int16_t deg1_i = calib[0].angle*100;
-            int16_t rd1_i = calib[0].rd*1000;
-            int16_t deg2_i = calib[1].angle*100;
-            int16_t rd2_i = calib[1].rd*1000;
-            AppDataSize = 8;
-            AppData[0] = deg1_i>>8;
-            AppData[1] = deg1_i;
-            AppData[2] = rd1_i>>8;
-            AppData[3] = rd1_i;
-            AppData[4] = deg2_i>>8;
-            AppData[5] = deg2_i;
-            AppData[6] = rd2_i>>8;
-            AppData[7] = rd2_i;
-
-            SendCustomFrame(90);
-        }
         delay_ms(10);
     }
 }
@@ -745,54 +662,24 @@ uint8_t BoardGetBatteryLevel( void )
 
  */
 
-void ReadAccIrq(void)
+int8_t user_i2c_read(uint8_t reg_addr, uint8_t *reg_data, uint32_t len, void *intf_ptr)
 {
-    uint8_t b[8];
-    read_i2c(0x68,59,8,b);
-    acc acc_temp;
-    acc_temp.X=(b[0]<<8)+b[1];
-    acc_temp.Y=(b[2]<<8)+b[3];
-    acc_temp.Z=(b[4]<<8)+b[5];
-    acc_temp.T=(b[6]<<8)+b[7];
+//    printf("Read from 0x%02X, address 0x%02X, len %i.\r\n",((uint8_t*)intf_ptr)[0],reg_addr,len);
+    read_i2c(((uint8_t*)intf_ptr)[0],reg_addr,len,reg_data);
+/*    printf("Done. Result ",reg_data[0]);
+    for(int i=0;i<len;i++)
+    {
+        printf("0x%02X,",reg_data[i]);
+    }
+    printf("\r\n");
+    */
+    return 0;
+}
 
-    //float angle=atan2f(acc_temp.Y,acc_temp.Z)*180/3.141592653589793238462643383279502884;
-    //printf("Data from ACC: T:%f, X:%i\r\n",((float)acc_temp.T)/340+43.5,acc_temp.X);
-    //delay_ms(10);
-    
-    if(acc_data[0].X==0 && acc_data[0].Y==0 && acc_data[0].Z==0)
-    {
-        //printf("Setting filer to: X:%i Y:%i Z:%i, T:%i\r\n",acc_temp.X,acc_temp.Y,acc_temp.Z,acc_temp.T);
-        for(int i=0;i<=filter_len;i++)
-        {
-            //printf("Clearing filter: %i\r\n",i);
-            acc_data[i].X=acc_temp.X;
-            acc_data[i].Y=acc_temp.Y;
-            acc_data[i].Z=acc_temp.Z;
-            acc_data[i].T=acc_temp.T;
-        }
-    }
-    else
-    {
-        acc_data[0].X=acc_temp.X;
-        acc_data[0].Y=acc_temp.Y;
-        acc_data[0].Z=acc_temp.Z;
-        acc_data[0].T=acc_temp.T;
-    }
-    //Filter
-    for(int i=0;i<filter_len;i++)
-    {
-        float a=0.99,b=0.01;
-        acc_data[i+1].X=acc_data[i+1].X * a + acc_data[i].X * b;
-        acc_data[i+1].Y=acc_data[i+1].Y * a + acc_data[i].Y * b;
-        acc_data[i+1].Z=acc_data[i+1].Z * a + acc_data[i].Z * b;
-        acc_data[i+1].T=acc_data[i+1].T * a + acc_data[i].T * b;
-    }
-    
-    //printf("Data from ACC: T:%f, X:%f\r\n",((float)acc_data[filter_len].T)/340+43.5,acc_data[filter_len].X);
-    //printf("ACC: X:%f Y:%f Z:%f, T:%f\r\n",acc_data[filter_len].X,acc_data[filter_len].Y,acc_data[filter_len].Z,acc_data[filter_len].T);
-    //delay_ms(10);
-    //printf("ACC: X:%i Y:%i Z:%i T:%i\r\n",acc.X,acc.Y,acc.Z,(b[6]<<8)+b[7]);
-    //printf("ACC2: X:%i Y:%i Z:%i\r\n",acc_test.X,acc_test.Y,acc_test.Z);
+int8_t user_i2c_write(uint8_t reg_addr, uint8_t *reg_data, uint32_t len, void *intf_ptr)
+{
+    write2_i2c(((uint8_t*)intf_ptr)[0],reg_addr,len,reg_data);
+    return 0;
 }
 int app_start( void )
 {
@@ -806,19 +693,12 @@ int app_start( void )
     DeviceState = DEVICE_STATE_INIT;
 
     printf("ClassA app start. Region: %i\r\n",ACTIVE_REGION);
-    rcc_enable_peripheral_clk(RCC_PERIPHERAL_GPIOA, true);
-    rcc_enable_peripheral_clk(RCC_PERIPHERAL_I2C0, true);
-    rcc_enable_peripheral_clk(RCC_PERIPHERAL_PWR, true);
-
-    //rcc_enable_peripheral_clk(RCC_PERIPHERAL_GPIOD, true);
 
     /* NVIC config */
     NVIC_EnableIRQ(GPIO_IRQn);
     NVIC_SetPriority(GPIO_IRQn, 2);
 
-
     gpio_init(GPIOA, GPIO_PIN_11, GPIO_MODE_ANALOG);
-
 
     // set iomux
     gpio_set_iomux(GPIOA, GPIO_PIN_14, 3);
@@ -830,21 +710,29 @@ int app_start( void )
     i2c_cmd(I2C0, true);
 
 
-    // setup ACC
-    //write_i2c(0x68,107,0b10001000);//Reset
-    //delay_ms(100);
-    write_i2c(0x68,107,0b00100000);//CYCLE=1,SLEEP=0,TEMP_DIS=1
-    write_i2c(0x68, 25,0b11111111);//Sample rate divider
-    
-    write_i2c(0x68,108,0b00000111);//STANDBY_GYRO=1, 1.5Hz wake period
-    write_i2c(0x68,55,0b11010000);//INT
-//    write_i2c(0x68,35,0b00001000);//FIFO Enable for ACC
-    write_i2c(0x68,56,0b00000001);//Enable Int
+    // setup BME
+    int8_t rslt = BME280_OK;
 
-    //delay_ms(1000);
-    gpio_init(g_int_gpiox, g_int_pin, GPIO_MODE_INPUT_PULL_UP);
-    gpio_config_stop3_wakeup(g_int_gpiox, g_int_pin, true, GPIO_LEVEL_LOW);
-    gpio_config_interrupt(g_int_gpiox, g_int_pin, GPIO_INTR_FALLING_EDGE);
+    dev.intf_ptr = &dev_addr;
+    dev.intf = BME280_I2C_INTF;
+    dev.read = user_i2c_read;
+    dev.write = user_i2c_write;
+    dev.delay_us = delay_us;
+
+	dev.settings.osr_h = BME280_OVERSAMPLING_1X;
+	dev.settings.osr_p = BME280_OVERSAMPLING_1X;
+	dev.settings.osr_t = BME280_OVERSAMPLING_1X;
+	dev.settings.filter = BME280_FILTER_COEFF_OFF;
+	dev.settings.standby_time = BME280_STANDBY_TIME_62_5_MS;
+	uint8_t settings_sel;
+	settings_sel = BME280_OSR_PRESS_SEL;
+	settings_sel |= BME280_OSR_TEMP_SEL;
+	settings_sel |= BME280_OSR_HUM_SEL;
+	settings_sel |= BME280_STANDBY_SEL;
+	settings_sel |= BME280_FILTER_SEL;
+
+    rslt = bme280_init(&dev);
+	rslt = bme280_set_sensor_settings(settings_sel, &dev);
 
     while( 1 )
     {
@@ -884,7 +772,6 @@ int app_start( void )
                 printf("DevEui, %02X%02X%02X%02X%02X%02X%02X%02X\r\n",DevEui[0], DevEui[1], DevEui[2], DevEui[3], DevEui[4], DevEui[5], DevEui[6], DevEui[7]);
                 printf("AppEui, %02X%02X%02X%02X%02X%02X%02X%02X\r\n",AppEui[0], AppEui[1], AppEui[2], AppEui[3], AppEui[4], AppEui[5], AppEui[6], AppEui[7]);
                 printf("AppKey, %02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X\r\n",AppKey[0],AppKey[1],AppKey[2],AppKey[3],AppKey[4],AppKey[5],AppKey[6],AppKey[7],AppKey[8],AppKey[9],AppKey[10],AppKey[11],AppKey[12],AppKey[13],AppKey[14],AppKey[15]);
-                printf("Angle1: %f, RD1: %f, Angle2: %f, RD2: %f\r\n",calib[0].angle,calib[0].rd,calib[1].angle,calib[1].rd);
                 //BoardGetUniqueId(DevEui);
 
                 mlmeReq.Type = MLME_JOIN;

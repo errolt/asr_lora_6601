@@ -119,8 +119,5 @@ void RTC_IRQHandler(void)
 
 void GPIO_IRQHandler(void)
 {
-    if (gpio_get_interrupt_status(g_int_gpiox, g_int_pin) == SET) {
-        gpio_clear_interrupt(g_int_gpiox, g_int_pin);
-        ReadAccIrq();
-    }
+
 }
