@@ -621,6 +621,8 @@ uint8_t BoardGetBatteryLevel( void )
     rcc_set_adc_clk_source(RCC_ADC_CLK_SOURCE_RCO48M);
     rcc_enable_peripheral_clk(RCC_PERIPHERAL_ADC, true);
     gpio_init(GPIOA, GPIO_PIN_8, GPIO_MODE_ANALOG);
+    gpio_init(GPIOA, GPIO_PIN_11, GPIO_MODE_OUTPUT_PP_LOW);
+
 
     adc_get_calibration_value(false, &gain_value, &dco_value);
 
@@ -640,6 +642,8 @@ uint8_t BoardGetBatteryLevel( void )
     adc_start(false);
     adc_enable(false);
     rcc_enable_peripheral_clk(RCC_PERIPHERAL_ADC, false);
+
+    gpio_init(GPIOA, GPIO_PIN_11, GPIO_MODE_INPUT_FLOATING);
 
     battery = ((1.2/4096) * battery - dco_value) / gain_value;
     battery =battery * 4.1333;
