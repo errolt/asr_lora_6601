@@ -618,10 +618,10 @@ uint8_t BoardGetBatteryLevel( void )
     float gain_value;
     float dco_value;
     float battery;
+    gpio_init(GPIOA, GPIO_PIN_11, GPIO_MODE_OUTPUT_PP_LOW);
     rcc_set_adc_clk_source(RCC_ADC_CLK_SOURCE_RCO48M);
     rcc_enable_peripheral_clk(RCC_PERIPHERAL_ADC, true);
     gpio_init(GPIOA, GPIO_PIN_8, GPIO_MODE_ANALOG);
-    gpio_init(GPIOA, GPIO_PIN_11, GPIO_MODE_OUTPUT_PP_LOW);
 
 
     adc_get_calibration_value(false, &gain_value, &dco_value);
@@ -654,8 +654,9 @@ uint8_t BoardGetBatteryLevel( void )
         return 0;//Mains powered
     }
 
-    battery= 1 + ((((battery -2.5)/1)*255))*2;
+    battery= 1 + ((((battery -2)/1)*255));
     if(battery>254)battery=254;//Even if higher than 3V, but less than 3.25, report 100%.
+    if(battery<1)battery=1;//Even if higher than 3V, but less than 3.25, report 100%.
     printf("Battery: %f\r\n",battery);
     return battery;
 }
